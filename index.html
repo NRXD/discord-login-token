@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>دخول ديسكورد بالتوكن</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1e1e2f;
+            color: #eee;
+            padding: 16px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .card {
+            background: #2c2c3e;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        }
+        h2 {
+            font-size: 18px;
+            margin-bottom: 12px;
+            color: #b5b5d0;
+        }
+        input,
+        select,
+        button {
+            width: 100%;
+            padding: 12px;
+            margin: 6px 0;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+        input,
+        select {
+            background: #3a3a50;
+            color: #fff;
+        }
+        button {
+            background: #5865f2;
+            color: #fff;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        button:active {
+            transform: scale(0.97);
+        }
+        .message {
+            background: #38384d;
+            padding: 8px 12px;
+            border-radius: 6px;
+            margin: 4px 0;
+            display: flex;
+            flex-wrap: wrap;
+        }
+        .message .author {
+            color: #b5b5ff;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+        .message .content {
+            color: #ddd;
+            word-break: break-word;
+        }
+        .error {
+            color: #ff6b6b;
+            background: #3a1a1a;
+            padding: 8px;
+            border-radius: 6px;
+        }
+        .success {
+            color: #6bff6b;
+            background: #1a3a1a;
+            padding: 8px;
+            border-radius: 6px;
+        }
+        .hidden {
+            display: none;
+        }
+        #messages {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .send-row {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .send-row input {
+            flex: 1;
+        }
+        .send-row button {
+            width: auto;
+            padding: 12px 24px;
+        }
+        .logout-btn {
+            background: #ff4d4d;
+            margin-top: 8px;
+        }
+        .note {
+            font-size: 13px;
+            color: #aaa;
+            margin-top: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- شاشة الدخول -->
+        <div id="loginScreen" class="card">
+            <h2>🔑 أدخل توكن ديسكورد</h2>
+            <p style="font-size:14px;color:#aaa;margin-bottom:12px;">التوكن مثل كلمة المرور – لا تشاركه أبداً.</p>
+            <input type="text" id="tokenInput" placeholder="الصق التوكن هنا" autocomplete="off">
+            <button id="loginBtn">تسجيل الدخول</button>
+            <div id="loginStatus"></div>
+        </div>
+
+        <!-- لوحة التحكم -->
+        <div id="dashboard" class="hidden">
+            <div class="card">
+                <h2>📡 السيرفرات</h2>
+                <select id="guildSelect"><option value="">جاري التحميل...</option></select>
+            </div>
+            <div class="card">
+                <h2>📢 القنوات</h2>
+                <select id="channelSelect"><option value="">اختر سيرفراً أولاً</option></select>
+            </div>
+            <div class="card">
+                <h2>💬 الرسائل</h2>
+                <div id="messages"><div style="color:#aaa;padding:12px;">اختر قناة لعرض الرسائل</div></div>
+            </div>
+            <div class="card">
+                <h2>✏️ إرسال رسالة</h2>
+                <div class="send-row">
+                    <input type="text" id="messageInput" placeholder="اكتب رسالة...">
+                    <button id="sendBtn">إرسال</button>
+                </div>
+                <div id="sendStatus"></div>
+            </div>
+            <button id="logoutBtn" class="logout-btn">تسجيل خروج (مسح التوكن)</button>
+        </div>
+    </div>
+
+    <script>
+        // ---------- الحالة ----------
+        let token = '';
+        let currentGuildId = '';
+        let currentChannelId = '';
+
+        // عناصر الصفحة
+        const loginScreen = document.getElementById('loginScreen');
+        const dashboard = document.getElementById('dashboard');
+        const tokenInput = document.getElementById('tokenInput');
+        const loginBtn = document.getElementById('loginBtn');
+        const loginStatus = document.getElementById('loginStatus');
+        const guildSelect = document.getElementById('guildSelect');
+        const channelSelect = document.getElementById('channelSelect');
+        const messagesDiv = document.getElementById('messages');
+        const messageInput = document.getElementById('messageInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const sendStatus = document.getElementById('sendStatus');
+        const logoutBtn = document.getElementById('logoutBtn');
+
+        // ---------- دوال API ----------
+        const api = (path, options = {}) => {
+            const url = `https://discord.com/api/v10${path}`;
+            const headers = {
+                'Authorization': token,
+                'Content-Type': 'application/json',
+                'User-Agent': 'DiscordLite/1.0'
+            };
+            return fetch(url, { ...options, headers }).then(res => {
+                if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+                return res.json();
+            });
+        };
+
+        // ---------- تسجيل الدخول ----------
+        loginBtn.addEventListener('click', async () => {
+            token = tokenInput.value.trim();
+            if (!token) {
+                loginStatus.innerHTML = '<div class="error">الرجاء لصق التوكن.</div>';
+                return;
+            }
+            loginStatus.innerHTML = '<div class="success">جاري التحقق...</div>';
+            try {
+                const user = await api('/users/@me');
+                loginStatus.innerHTML =
+                    `<div class="success">✅ تم الدخول باسم <b>${user.username}#${user.discriminator}</b></div>`;
+                localStorage.setItem('discord_token', token);
+                loginScreen.classList.add('hidden');
+                dashboard.classList.remove('hidden');
+                loadGuilds();
+            } catch (err) {
+                loginStatus.innerHTML = `<div class="error">❌ توكن غير صالح: ${err.message}</div>`;
+                token = '';
+                localStorage.removeItem('discord_token');
+            }
+        });
+
+        // ---------- تسجيل خروج ----------
+        logoutBtn.addEventListener('click', () => {
+            localStorage.removeItem('discord_token');
+            token = '';
+            dashboard.classList.add('hidden');
+            loginScreen.classList.remove('hidden');
+            tokenInput.value = '';
+            loginStatus.innerHTML = '';
+            guildSelect.innerHTML = '<option>جاري التحميل...</option>';
+            channelSelect.innerHTML = '<option>اختر سيرفراً أولاً</option>';
+            messagesDiv.innerHTML = '<div style="color:#aaa;padding:12px;">اختر قناة لعرض الرسائل</div>';
+            currentGuildId = '';
+            currentChannelId = '';
+        });
+
+        // ---------- تحميل السيرفرات ----------
+        async function loadGuilds() {
+            try {
+                const guilds = await api('/users/@me/guilds');
+                guildSelect.innerHTML = '<option value="">-- اختر سيرفراً --</option>';
+                guilds.forEach(g => {
+                    const opt = document.createElement('option');
+                    opt.value = g.id;
+                    opt.textContent = g.name;
+                    guildSelect.appendChild(opt);
+                });
+                if (guilds.length > 0) {
+                    guildSelect.value = guilds[0].id;
+                    guildChanged();
+                }
+                guildSelect.addEventListener('change', guildChanged);
+            } catch (err) {
+                guildSelect.innerHTML = `<option>خطأ في تحميل السيرفرات: ${err.message}</option>`;
+            }
+        }
+
+        // ---------- تغيير السيرفر ----------
+        async function guildChanged() {
+            currentGuildId = guildSelect.value;
+            if (!currentGuildId) {
+                channelSelect.innerHTML = '<option>اختر سيرفراً أولاً</option>';
+                messagesDiv.innerHTML = '<div style="color:#aaa;padding:12px;">اختر قناة لعرض الرسائل</div>';
+                return;
+            }
+            try {
+                const channels = await api(`/guilds/${currentGuildId}/channels`);
+                const textChannels = channels.filter(c => c.type === 0);
+                channelSelect.innerHTML = '<option value="">-- اختر قناة --</option>';
+                textChannels.forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = c.id;
+                    opt.textContent = `#${c.name}`;
+                    channelSelect.appendChild(opt);
+                });
+                if (textChannels.length > 0) {
+                    channelSelect.value = textChannels[0].id;
+                    channelChanged();
+                }
+                channelSelect.addEventListener('change', channelChanged);
+            } catch (err) {
+                channelSelect.innerHTML = `<option>خطأ في تحميل القنوات: ${err.message}</option>`;
+            }
+        }
+
+        // ---------- تغيير القناة ----------
+        async function channelChanged() {
+            currentChannelId = channelSelect.value;
+            if (!currentChannelId) {
+                messagesDiv.innerHTML = '<div style="color:#aaa;padding:12px;">اختر قناة لعرض الرسائل</div>';
+                return;
+            }
+            await loadMessages();
+        }
+
+        // ---------- تحميل الرسائل ----------
+        async function loadMessages() {
+            messagesDiv.innerHTML = '<div style="color:#aaa;padding:12px;">جاري تحميل الرسائل...</div>';
+            try {
+                const msgs = await api(`/channels/${currentChannelId}/messages?limit=30`);
+                if (msgs.length === 0) {
+                    messagesDiv.innerHTML = '<div style="color:#aaa;padding:12px;">لا توجد رسائل في هذه القناة.</div>';
+                    return;
+                }
+                let html = '';
+                msgs.reverse().forEach(m => {
+                    const author = m.author ? m.author.username : 'مجهول';
+                    const content = m.content || '(فارغ)';
+                    html +=
+                    `<div class="message"><span class="author">${author}</span><span class="content">${content}</span></div>`;
+                });
+                messagesDiv.innerHTML = html;
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            } catch (err) {
+                messagesDiv.innerHTML = `<div class="error">فشل تحميل الرسائل: ${err.message}</div>`;
+            }
+        }
+
+        // ---------- إرسال رسالة ----------
+        sendBtn.addEventListener('click', async () => {
+            const content = messageInput.value.trim();
+            if (!content) {
+                sendStatus.innerHTML = '<div class="error">الرسالة لا يمكن أن تكون فارغة.</div>';
+                return;
+            }
+            if (!currentChannelId) {
+                sendStatus.innerHTML = '<div class="error">اختر قناة أولاً.</div>';
+                return;
+            }
+            sendStatus.innerHTML = '<div>جاري الإرسال...</div>';
+            try {
+                await api(`/channels/${currentChannelId}/messages`, {
+                    method: 'POST',
+                    body: JSON.stringify({ content })
+                });
+                sendStatus.innerHTML = '<div class="success">✅ تم الإرسال!</div>';
+                messageInput.value = '';
+                await loadMessages();
+            } catch (err) {
+                sendStatus.innerHTML = `<div class="error">فشل الإرسال: ${err.message}</div>`;
+            }
+        });
+
+        messageInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') sendBtn.click();
+        });
+
+        // ---------- دخول تلقائي إذا كان التوكن محفوظاً ----------
+        (function init() {
+            const saved = localStorage.getItem('discord_token');
+            if (saved) {
+                token = saved;
+                tokenInput.value = saved;
+                setTimeout(() => loginBtn.click(), 200);
+            }
+        })();
+    </script>
+</body>
+</html>
